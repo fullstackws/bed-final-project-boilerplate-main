@@ -1,7 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { promises as fs } from "fs";
 import path from "path";
-import yaml from "js-yaml"; // To parse YAML files
 import { fileURLToPath } from "url";
 
 // Setup ESM-friendly __dirname
@@ -10,146 +9,200 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
-  // Load data from the OpenAPI YAML file
-  const openApiPath = path.join(__dirname, "../openapi.yaml");
-  const openApiData = yaml.load(await fs.readFile(openApiPath, "utf8"));
+  // Load data from JSON files
+  const usersPath = path.join(__dirname, "../src/data", "users.json");
+  const hostsPath = path.join(__dirname, "../src/data", "hosts.json");
+  const propertiesPath = path.join(__dirname, "../src/data", "properties.json");
+  const bookingsPath = path.join(__dirname, "../src/data", "bookings.json");
+  const reviewsPath = path.join(__dirname, "../src/data", "reviews.json");
+  const amenitiesPath = path.join(__dirname, "../src/data", "amenities.json");
 
-  // Helper function to safely access properties in OpenAPI YAML structure
-  function getComponentsSchema(schemaName) {
-    if (openApiData.components && openApiData.components.schemas) {
-      return openApiData.components.schemas[schemaName]?.example || [];
+  const users = JSON.parse(await fs.readFile(usersPath, "utf8")).users;
+  const hosts = JSON.parse(await fs.readFile(hostsPath, "utf8")).hosts;
+  const properties = JSON.parse(
+    await fs.readFile(propertiesPath, "utf8")
+  ).properties;
+  const bookings = JSON.parse(await fs.readFile(bookingsPath, "utf8")).bookings;
+  const reviews = JSON.parse(await fs.readFile(reviewsPath, "utf8")).reviews;
+  const amenities = JSON.parse(
+    await fs.readFile(amenitiesPath, "utf8")
+  ).amenities;
+
+  // Seed amenities
+  for (const amenity of amenities) {
+    try {
+      await prisma.amenity.create({
+        data: {
+          id: amenity.id,
+          name: amenity.name,
+        },
+      });
+    } catch (err) {
+      console.error(`Failed to create amenity: ${amenity.name}`, err);
     }
-    return [];
   }
 
-  // Seed users
-  const users = getComponentsSchema("User");
-  for (const user of users) {
-    if (user) {
-      try {
-        await prisma.user.create({
-          data: {
-            id: user.id,
-            username: user.username,
-            name: user.name,
-            password: user.password,
-            email: user.email,
-            phoneNumber: user.phoneNumber,
-            profilePicture: user.profilePicture,
-          },
-        });
-      } catch (err) {
-        if (err.code === "P2002") {
-          console.log(`Skipping duplicate user: ${user.username}`);
-        } else {
-          throw err;
-        }
+  // Seed users with unique username check
+  for (const userData of users) {
+    try {
+      await prisma.user.create({
+        data: {
+          username: userData.username,
+          name: userData.name,
+          password: userData.password,
+          email: userData.email,
+          phoneNumber: userData.phoneNumber,
+          profilePicture: userData.profilePicture,
+        },
+      });
+    } catch (err) {
+      if (err.code === "P2002") {
+        console.log(`Skipping duplicate user: ${userData.username}`);
+      } else {
+        console.error(`Error creating user ${userData.username}:`, err);
+        throw err;
       }
     }
   }
 
   // Seed hosts
-  const hosts = getComponentsSchema("Host");
-  for (const host of hosts) {
-    if (host) {
+  for (const hostData of hosts) {
+    try {
       await prisma.host.create({
         data: {
-          id: host.id,
-          username: host.username,
-          name: host.name,
-          email: host.email,
-          phoneNumber: host.phoneNumber,
-          profilePicture: host.profilePicture,
-          aboutMe: host.aboutMe,
+          username: hostData.username,
+          name: hostData.name,
+          email: hostData.email,
+          phoneNumber: hostData.phoneNumber,
+          profilePicture: hostData.profilePicture,
+          aboutMe: hostData.aboutMe,
         },
       });
+    } catch (err) {
+      console.error(`Error creating host ${hostData.username}:`, err);
     }
   }
 
   // Seed properties
-  const properties = getComponentsSchema("Property");
-  for (const property of properties) {
-    if (property) {
-      try {
-        const hostExists = await prisma.host.findUnique({
-          where: { id: property.hostId },
-        });
+  // Seed properties
+  // Seed properties
+  for (const propertyData of properties) {
+    try {
+      // Log the property data and hostId for debugging
+      console.log(
+        `Checking host for property: ${propertyData.title}, Host ID: ${propertyData.hostId}`
+      );
 
-        if (hostExists) {
-          await prisma.property.create({
-            data: {
-              id: property.id,
-              title: property.title,
-              description: property.description,
-              location: property.location,
-              pricePerNight: parseFloat(property.pricePerNight),
-              bedroomCount: property.bedroomCount || 0,
-              bathroomCount: property.bathroomCount || 0,
-              maxGuestCount: property.maxGuestCount || 1,
-              rating: property.rating || 0,
-              host: { connect: { id: property.hostId } },
-            },
-          });
-        } else {
-          console.log(
-            `Skipping property: ${property.title}, host not found: ${property.hostId}`
-          );
-        }
-      } catch (err) {
-        console.error(`Failed to create property: ${property.title}`, err);
-      }
-    }
-  }
-
-  // Seed bookings
-  const bookings = getComponentsSchema("Booking");
-  for (const booking of bookings) {
-    if (booking) {
-      const startDate = new Date(booking.startDate);
-      const endDate = new Date(booking.endDate);
-
-      if (isNaN(startDate) || isNaN(endDate)) {
-        console.log(`Invalid dates for booking: ${booking.id}, skipping.`);
-        continue;
-      }
-
-      await prisma.booking.create({
-        data: {
-          id: booking.id,
-          startDate: startDate,
-          endDate: endDate,
-          user: { connect: { id: booking.userId } },
-          property: { connect: { id: booking.propertyId } },
-        },
-      });
-    }
-  }
-
-  // Seed reviews
-  const reviews = getComponentsSchema("Review");
-  for (const review of reviews) {
-    if (review) {
-      const propertyExists = await prisma.property.findUnique({
-        where: { id: review.propertyId },
+      // Ensure the host exists before creating the property
+      const hostExists = await prisma.host.findUnique({
+        where: { id: propertyData.hostId },
       });
 
-      if (propertyExists) {
-        await prisma.review.create({
+      if (hostExists) {
+        console.log(
+          `Host found for property: ${propertyData.title}, Host: ${hostExists.username}`
+        );
+
+        await prisma.property.create({
           data: {
-            id: review.id,
-            rating: review.rating,
-            comment: review.comment,
-            property: { connect: { id: review.propertyId } },
-            user: { connect: { id: review.userId } },
+            id: propertyData.id,
+            title: propertyData.title,
+            description: propertyData.description,
+            location: propertyData.location,
+            pricePerNight: parseFloat(propertyData.pricePerNight),
+            bedroomCount: propertyData.bedroomCount || 0,
+            bathroomCount: propertyData.bathRoomCount || 0,
+            maxGuestCount: propertyData.maxGuestCount || 1,
+            rating: propertyData.rating || 0,
+            host: { connect: { id: propertyData.hostId } }, // Ensure this is using 'hostId'
           },
         });
       } else {
         console.log(
-          `Skipping review for property: ${review.propertyId}, property not found.`
+          `Skipping property: ${propertyData.title}, host not found: ${propertyData.hostId}`
         );
       }
+    } catch (err) {
+      console.error(`Failed to create property: ${propertyData.title}`, err);
     }
   }
+
+  // Seed bookings
+  for (const bookingData of bookings) {
+    const startDate = new Date(bookingData.checkinDate);
+    const endDate = new Date(bookingData.checkoutDate);
+
+    // Validate dates
+    if (isNaN(startDate) || isNaN(endDate)) {
+      console.log(`Invalid dates for booking: ${bookingData.id}, skipping.`);
+      continue;
+    }
+
+    try {
+      // Ensure the user exists before creating the booking
+      const userExists = await prisma.user.findUnique({
+        where: { id: bookingData.userId },
+      });
+
+      // Ensure the property exists before creating the booking
+      const propertyExists = await prisma.property.findUnique({
+        where: { id: bookingData.propertyId },
+      });
+
+      if (userExists && propertyExists) {
+        await prisma.booking.create({
+          data: {
+            id: bookingData.id,
+            startDate: startDate,
+            endDate: endDate,
+            user: { connect: { id: bookingData.userId } },
+            property: { connect: { id: bookingData.propertyId } },
+          },
+        });
+      } else {
+        console.log(
+          `Skipping booking: ${bookingData.id}, user or property not found.`
+        );
+      }
+    } catch (err) {
+      console.error(`Failed to create booking: ${bookingData.id}`, err);
+    }
+  }
+
+  // Seed reviews
+  for (const reviewData of reviews) {
+    try {
+      // Ensure the property exists before creating the review
+      const propertyExists = await prisma.property.findUnique({
+        where: { id: reviewData.propertyId },
+      });
+
+      // Ensure the user exists before creating the review
+      const userExists = await prisma.user.findUnique({
+        where: { id: reviewData.userId },
+      });
+
+      if (propertyExists && userExists) {
+        await prisma.review.create({
+          data: {
+            id: reviewData.id,
+            rating: reviewData.rating,
+            comment: reviewData.comment,
+            user: { connect: { id: reviewData.userId } },
+            property: { connect: { id: reviewData.propertyId } },
+          },
+        });
+      } else {
+        console.log(
+          `Skipping review: ${reviewData.id}, property or user not found.`
+        );
+      }
+    } catch (err) {
+      console.error(`Failed to create review: ${reviewData.id}`, err);
+    }
+  }
+
+  console.log("Seeding completed successfully!");
 }
 
 main()
