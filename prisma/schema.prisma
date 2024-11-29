@@ -1,0 +1,82 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+}
+
+// Prisma schema
+
+model User {
+  id            String    @id @default(uuid())
+  username      String    @unique
+  name          String
+  email         String    @unique
+  phoneNumber   String
+  profilePicture String?
+  password      String     
+  bookings      Booking[]
+  reviews       Review[]
+}
+
+model Host {
+  id            String    @id @default(uuid())
+  username      String    @unique
+  name          String
+  email         String
+  phoneNumber   String
+  profilePicture String?
+  aboutMe       String?
+  listings      Property[]
+}
+
+model Property {
+  id            String    @id @default(uuid())
+  title         String
+  description   String
+  location      String
+  pricePerNight Float
+  bedroomCount  Int
+  bathroomCount Int
+  maxGuestCount Int
+  rating        Float
+  amenities     Amenity[] @relation("PropertyAmenities")
+  bookings      Booking[]
+  reviews       Review[]
+  host          Host      @relation(fields: [hostId], references: [id])
+  hostId        String
+}
+
+model Amenity {
+  id        String     @id @default(uuid())
+  name      String
+  properties Property[] @relation("PropertyAmenities")
+}
+
+model Booking {
+  id          String    @id @default(uuid())
+  startDate   DateTime
+  endDate     DateTime
+  property    Property  @relation(fields: [propertyId], references: [id])
+  propertyId  String
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  rating     Float
+  comment    String?
+  property   Property  @relation(fields: [propertyId], references: [id])
+  propertyId String
+  user       User      @relation(fields: [userId], references: [id])
+  userId     String
+}
